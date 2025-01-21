@@ -4,7 +4,7 @@ __pycache__/
 *$py.class
 *.so
 .Python
-
+env/
 build/
 develop-eggs/
 dist/
@@ -23,12 +23,12 @@ wheels/
 
 # Virtual Environment
 venv/
+test_venv/
 ENV/
 
 # Environment Variables
 .env
 .env.*
-!.env.example
 
 # IDE
 .idea/
@@ -38,4 +38,14 @@ ENV/
 
 # OS
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
+
+# Project specific
+*.db
+*.sqlite3
+*.log
