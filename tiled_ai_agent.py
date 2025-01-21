@@ -7,8 +7,7 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 import os
-import json
-from agent_communication import AgentCommunication
+from pydantic_ai import Agent
 
 # Load environment variables
 load_dotenv()
@@ -32,7 +31,6 @@ supabase: Client = create_client(
     os.getenv("SUPABASE_URL"),
     os.getenv("SUPABASE_SERVICE_KEY")
 )
-agent_communication = AgentCommunication()
 
 class AgentRequest(BaseModel):
     query: str
@@ -61,27 +59,6 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Security(security))
         )
     return True
 
-async def get_relevant_context(query: str) -> List[Dict[str, Any]]:
-    """Get relevant documentation context from Supabase."""
-    # Get embeddings for the query
-    response = await openai_client.embeddings.create(
-        input=query,
-        model="text-embedding-ada-002"
-    )
-    query_embedding = response.data[0].embedding
-
-    # Search for similar documents in Supabase
-    response = supabase.rpc(
-        'match_tiled_docs',
-        json.dumps({
-            'query_embedding': query_embedding,
-            'match_count': 5,
-            'match_threshold': 0.78
-        })
-    ).execute()
-
-    return response.data if response.data else []
-
 @app.get("/")
 async def root():
     """Root endpoint returning API information."""
@@ -101,41 +78,39 @@ async def tiled_expert_endpoint(
     Requires bearer token authentication.
     """
     try:
-        # Get relevant documentation context
-        docs = await get_relevant_context(request.query)
-        context = "\n\n".join([doc['content'] for doc in docs])
+        # Initialize the agent with OpenAI model
+        agent = Agent(
+            model="openai:gpt-4",
+            system_prompt="""You are an expert at Tiled Map Editor and its Python library.
+Your role is to help developers understand and use Tiled effectively for creating game maps.
 
+When responding to questions:
+1. Be concise and direct
+2. Provide code examples when relevant
+3. Reference official documentation
+4. Explain concepts in a way that's easy for developers to understand
+5. If you're not sure about something, say so rather than making assumptions
+
+Remember to:
+- Focus on practical, working solutions
+- Highlight best practices for map creation
+- Consider performance implications
+- Mention any relevant plugins or extensions
+- Point out common pitfalls to avoid"""
+        )
+        
         # Include context in the query if provided
-        system_prompt = os.getenv("SYSTEM_PROMPT", """You are an expert at Tiled - a Python library for accessing scientific data. 
-        Your task is to help users understand how to use Tiled effectively.
-        Always provide clear, accurate, and helpful responses with code examples when relevant.""")
-
-        # Create chat completion
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Context from Tiled documentation:\n\n{context}\n\nQuestion: {request.query}"}
-        ]
-
-        response = await openai_client.chat.completions.create(
-            model=os.getenv("LLM_MODEL", "gpt-4"),
-            messages=messages
-        )
-
-        # If collaborative mode is enabled, get insights from other agents
-        collaborative_insights = None
-        if request.collaborative:
-            collaborative_insights = await agent_communication.collaborative_map_design(request.query)
-
+        full_query = f"{request.context}\n\nQuestion: {request.query}" if request.context else request.query
+        
+        # Run the agent
+        result = await agent.run(full_query)
+        
         return AgentResponse(
-            response=response.choices[0].message.content,
-            source_documents=[{
-                'url': doc['url'],
-                'title': doc['title'],
-                'content': doc['content'][:200] + "..."  # Truncate content for response
-            } for doc in docs],
-            collaborative_insights=collaborative_insights
+            response=result.data,
+            source_documents=[],  # TODO: Add relevant source documents
+            collaborative_insights=None
         )
-
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

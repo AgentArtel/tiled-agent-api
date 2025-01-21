@@ -10,3 +10,4 @@ typing_extensions==4.12.2
 beautifulsoup4==4.12.3
 crawl4ai==0.4.247
 requests>=2.32.3
+pydantic_ai==0.1.0
